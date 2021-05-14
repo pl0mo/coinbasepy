@@ -4,7 +4,7 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
-from requests.compat import json
+import json
 
 
 class CoinbaseError(Exception):
@@ -93,6 +93,18 @@ class ServiceUnavailableError(APIError):
     pass
 
 
+class IdentityVerificationRequiredError(APIError):
+    pass
+
+
+class JumioVerificationRequiredError(APIError):
+    pass
+
+
+class JumioFaceMatchVerificationRequiredError(APIError):
+    pass
+
+
 def build_api_error(response, blob=None):
     """Helper method for creating errors and attaching HTTP response/request
     details to them.
@@ -114,7 +126,8 @@ def build_api_error(response, blob=None):
         error_message = blob.get('error_description')
     error_class = (
         _error_id_to_class.get(error_id, None) or
-        _status_code_to_class.get(response.status_code, APIError))
+        _status_code_to_class.get(response.status_code, APIError)
+    )
     return error_class(response, error_id, error_message, error_list)
 
 
@@ -133,6 +146,9 @@ _error_id_to_class = {
     'not_found': NotFoundError,
     'rate_limit_exceeded': RateLimitExceededError,
     'internal_server_error': InternalServerError,
+    'identity_verification_required': IdentityVerificationRequiredError,
+    'jumio_verification_required': JumioVerificationRequiredError,
+    'jumio_face_match_verification_required': JumioFaceMatchVerificationRequiredError
 }
 
 _status_code_to_class = {

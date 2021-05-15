@@ -13,10 +13,10 @@ from requests.auth import AuthBase
 
 
 class HMACAuth(AuthBase):
-    def __init__(self, api_key, api_secret, api_version):
-        self.api_key = api_key
-        self.api_secret = api_secret
-        self.api_version = api_version
+    def __init__(self, api_key=None, api_secret=None, api_version=None):
+        self.api_key = api_key or ''
+        self.api_secret = api_secret or ''
+        self.api_version = api_version or '2016-02-18'
 
     def __call__(self, request):
         timestamp = str(int(time.time()))
@@ -25,16 +25,19 @@ class HMACAuth(AuthBase):
 
         if not isinstance(message, bytes):
             message = message.encode()
-        if not isinstance(secret, bytes):
-            secret = secret.encode()
 
-        signature = hmac.new(secret, message, hashlib.sha256).hexdigest()
-        request.headers.update({
+        request.headers = {
             to_native_string('CB-VERSION'): self.api_version,
             to_native_string('CB-ACCESS-KEY'): self.api_key,
-            to_native_string('CB-ACCESS-SIGN'): signature,
             to_native_string('CB-ACCESS-TIMESTAMP'): timestamp,
-        })
+        }
+
+        if secret:
+            if not isinstance(secret, bytes):
+                secret = secret.encode()
+            signature = hmac.new(secret, message, hashlib.sha256).hexdigest()
+            request.headers.update({to_native_string('CB-ACCESS-SIGN'): signature})
+
         return request
 
 

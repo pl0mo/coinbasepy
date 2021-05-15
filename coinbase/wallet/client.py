@@ -16,7 +16,7 @@ from coinbase.wallet.auth import OAuth2Auth
 from coinbase.wallet.compat import imap
 from coinbase.wallet.compat import quote
 from coinbase.wallet.compat import urljoin
-from coinbase.wallet.error import build_api_error
+from coinbase.wallet.error import build_api_error, ValidationError
 from coinbase.wallet.model import APIObject
 from coinbase.wallet.model import Account
 from coinbase.wallet.model import Address
@@ -40,6 +40,8 @@ from coinbase.wallet.util import encode_params
 from Crypto.Hash import SHA256
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
+
+from requests import Response
 
 COINBASE_CRT_PATH = os.path.join(
     os.path.dirname(os.path.realpath(__file__)), 'ca-coinbase.crt')
@@ -68,13 +70,26 @@ class Client(object):
     BASE_API_URI = 'https://api.coinbase.com/'
     API_VERSION = '2016-02-18'
 
+    _AUTHENTICATED_ENDPOINTS = [
+        'account',
+        'accounts',
+        'checkouts',
+        'merchants',
+        'notification',
+        'notifications',
+        'orders',
+        'payment-methods',
+        'reports',
+        'user',
+        'users',
+    ]
+
     cached_callback_public_key = None
 
-    def __init__(self, api_key, api_secret, base_api_uri=None, api_version=None):
-        if not api_key:
-            raise ValueError('Missing `api_key`.')
-        if not api_secret:
-            raise ValueError('Missing `api_secret`.')
+    def __init__(self, api_key=None, api_secret=None, base_api_uri=None, api_version=None):
+
+        self._api_key = api_key
+        self._api_secret = api_secret
 
         # Allow passing in a different API base.
         self.BASE_API_URI = check_uri_security(base_api_uri or self.BASE_API_URI)
@@ -82,14 +97,14 @@ class Client(object):
         self.API_VERSION = api_version or self.API_VERSION
 
         # Set up a requests session for interacting with the API.
-        self.session = self._build_session(HMACAuth, api_key, api_secret, self.API_VERSION)
+        self.session = self._build_session(HMACAuth, self._api_key, self._api_secret, self.API_VERSION)
 
     def _build_session(self, auth_class, *args, **kwargs):
         """Internal helper for creating a requests `session` with the correct
         authentication handling.
         """
         session = requests.session()
-        session.auth = auth_class(*args, **kwargs)
+        session.auth = auth_class(*[a for a in args if a], **{k: v for k, v in kwargs.items() if v})
         session.headers.update({'CB-VERSION': self.API_VERSION,
                                 'Accept': 'application/json',
                                 'Content-Type': 'application/json',
@@ -106,6 +121,7 @@ class Client(object):
         Raises an APIError if the response is not 20X. Otherwise, returns the
         response object. Not intended for direct use by API consumers.
         """
+        self._check_required_apikey(method)
         uri = self._create_api_uri(*relative_path_parts)
         data = kwargs.get('data', None)
         if data and isinstance(data, dict):
@@ -631,9 +647,21 @@ class Client(object):
             Client.cached_callback_public_key = RSA.importKey(f.read())
         return Client.cached_callback_public_key
 
+    def _check_required_apikey(self, method):
+        if method in self._AUTHENTICATED_ENDPOINTS:
+            if self._api_key  and self._api_secret:
+                return True
+            else:
+                response = Response()
+                response.status_code = 422
+                response.message = f'API keys are required for {method} requests.'
+                response.id = 'validation_error'
+                raise ValidationError(response, response.id, response.message)
+        return True
 
 class OAuthClient(Client):
     def __init__(self, access_token, refresh_token, base_api_uri=None, api_version=None):
+        super().__init__(base_api_uri, api_version)
         if not access_token:
             raise ValueError("Missing `access_token`.")
         if not refresh_token:
